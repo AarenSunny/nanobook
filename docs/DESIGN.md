@@ -1,5 +1,27 @@
 # Engine design
 
+## System layers
+
+The matching book remains a small single-writer component. The exchange layers
+around it have separate responsibilities:
+
+1. `FrameDecoder` validates fixed-width binary requests and handles arbitrary
+   TCP fragmentation without allocating.
+2. `Gateway` assigns an ingress sequence and maps commands and trades to binary
+   response events.
+3. `JournaledProcessor` persists sequenced commands before matching and replays
+   them on startup.
+4. `ShardedExchange` maps symbols to worker-owned books through bounded SPSC
+   queues. Books never share mutable state.
+5. The egress path correlates responses by ingress sequence. Cross-shard event
+   arrival order is deliberately unspecified.
+
+This separation keeps parsing, storage syscalls, and thread handoff outside the
+book's matching loop. The protocol follows fixed-width conventions used by
+[Nasdaq OUCH 5.0](https://www.nasdaqtrader.com/content/technicalsupport/specifications/TradingProducts/OUCH5.0.pdf),
+while remaining a smaller project-specific wire format. It is not OUCH wire
+compatible.
+
 ## Representation
 
 At construction, `OrderBook` allocates two arrays of price levels (bids and asks), each covering a configured integer price ladder. A level contains the first and last order slot plus aggregate quantity and order count. Each order slot has links to its predecessor and successor, giving a FIFO intrusive list at its price. Removing a known order takes constant time without allocating or searching the queue.
@@ -38,4 +60,11 @@ The fixed hash table does not resize. This avoids allocations in the hot path, b
 
 ## Correctness checks
 
-The test suite checks FIFO fills and resting-price execution, aggregate quantities, cancel/reduce/modify semantics, invalid operations, LOBSTER event mapping, and capacity handling. A 5,000-step deterministic randomized run compares each operation, trade sequence, best quote, and resting order count with a simple reference model. `check_invariants()` also walks every queue and checks links, quantities, bitsets, cached best prices, and ID lookup consistency. A separate test counts heap allocations during core operations. Address and undefined-behavior sanitizers run with `make sanitize`.
+The test suite checks FIFO fills and resting-price execution, aggregate quantities, cancel/reduce/modify semantics, invalid operations, LOBSTER event mapping, and capacity handling. A 5,000-step deterministic randomized run compares each operation, trade sequence, best quote, and resting order count with a simple reference model. `check_invariants()` also walks every queue and checks links, quantities, bitsets, cached best prices, and ID lookup consistency. A separate test counts heap allocations during core operations.
+
+Gateway tests split every byte of a request into a separate decoder call and
+cover malformed versions, message types, lengths, and sides. Journal tests
+rebuild state from a clean log, recover and repair a partial tail, and refuse a
+checksum-damaged record. Sharding tests exercise bounded queue wraparound,
+symbol isolation, asynchronous crossing, per-shard counters, and post-stop book
+invariants. Address and undefined-behavior sanitizers run with `make sanitize`.
