@@ -89,3 +89,9 @@ stages; eight workers added scheduling and cache-coherence cost. These are
 observations from one synthetic run, not portable capacity claims. Repeat runs,
 pinning, hardware performance counters, realistic symbol skew, and a real
 network load generator are needed before drawing production conclusions.
+
+An open-loop run on the same host used 64 symbols, four shards, 10,000 warmup
+commands, and 100,000 measured commands at a target 100,000 commands/sec. It
+completed at 99,998.5 commands/sec with no queue-full retries and overall
+p50/p99/p99.9/p99.99/max latency of **2.875 / 10.375 / 21.333 / 39.917 /
+93.875 microseconds**. Reproduce it with the second pipeline command above.
